@@ -4,6 +4,8 @@ import dash
 from dash import html, dash_table, dcc
 from dash.dependencies import Input, Output
 import plotly.express as px
+from itertools import combinations
+from collections import Counter
 
 
 # Interface for data ingestion
@@ -73,6 +75,23 @@ class LocationDistribution(DataProcess):
         return data.groupby('Location')['Customer_ID'].count().reset_index(name='CustomerCount')
 
 
+class PairProductAnalysis(DataProcess):
+    def process_data(self, data):
+        # Group transactions by Customer_ID or other unique identifier
+        grouped_data = data.groupby('Customer_ID')['Purchase Category'].apply(list)
+
+        # Generate pairs of products purchased together
+        pairs = []
+        for items in grouped_data:
+            pairs.extend(combinations(items, 2))
+
+        # Count frequency of each pair
+        pair_counts = Counter(pairs)
+        pair_df = pd.DataFrame(pair_counts.items(), columns=['Pair', 'Frequency'])
+        pair_df['Product 1'], pair_df['Product 2'] = zip(*pair_df['Pair'])
+        return pair_df.drop(columns=['Pair']).sort_values(by='Frequency', ascending=False)
+
+
 # File path to the dataset
 file_path = r"Nabrees Dataset.xlsx"
 
@@ -88,6 +107,9 @@ category_data = data_processing_context.process(sales_data)
 
 data_processing_context.set_strategy(LocationDistribution())
 location_data = data_processing_context.process(sales_data)
+
+data_processing_context.set_strategy(PairProductAnalysis())
+pair_product_data = data_processing_context.process(sales_data)
 
 # Initialize the Dash app
 app = dash.Dash(__name__)
@@ -114,6 +136,7 @@ app.layout = html.Div(children=[
             {'label': 'Trends Over Time', 'value': 'trends-over-time'},
             {'label': 'Purchase Categories', 'value': 'purchase-categories'},
             {'label': 'Location Distribution', 'value': 'location-distribution'},
+            {'label': 'Pair Product Analysis', 'value': 'pair-product-analysis'},
         ],
         value='trends-over-time',
     ),
@@ -135,6 +158,9 @@ def update_chart(selected_chart):
         fig = px.bar(category_data, x='Purchase Category', y='TotalPurchases', title='Purchase Categories')
     elif selected_chart == 'location-distribution':
         fig = px.bar(location_data, x='Location', y='CustomerCount', title='Location Distribution')
+    elif selected_chart == 'pair-product-analysis':
+        fig = px.bar(pair_product_data.head(10), x='Product 1', y='Frequency', color='Product 2',
+                     title='Top 10 Product Pairs Purchased Together')
     else:
         return "Please select a chart."
 
